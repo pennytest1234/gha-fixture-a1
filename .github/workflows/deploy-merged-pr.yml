@@ -1,0 +1,115 @@
+name: Fixture deploy-merged-pr (approve-then-swap lab)
+
+# Adapted from github/github-well-architected deploy-merged-pr.yml.
+# Semantics preserved: review-gated, file filter at job start, check wait,
+# sync references the MUTABLE branch ref. Observables added: the sync job
+# records exactly which SHA and file set it consumed, and the delta versus
+# the approved SHA.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+jobs:
+  check-file-changes:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_REPO: ${{ github.repository }}
+    outputs:
+      should_sync: ${{ steps.filter.outputs.should_sync }}
+      approved_sha: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check Changed File Paths
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXCLUDED_PATHS=(".github/workflows/")
+          CHANGED_FILES=$(gh pr view $PR_NUMBER --json files --repo $SOURCE_REPO --jq '[.files[].path]')
+          EXCLUDE_FILTER=$(printf '"%s",' "${EXCLUDED_PATHS[@]}")
+          EXCLUDE_FILTER="[${EXCLUDE_FILTER%,}]"
+          NON_WORKFLOW_CHANGES=$(echo "$CHANGED_FILES" | jq --argjson exclude "$EXCLUDE_FILTER" '[.[] | select(. as $f | $exclude | any(. as $p | $f | startswith($p)) | not)] | length')
+          echo "Approved-SHA-time file count outside excluded paths: $NON_WORKFLOW_CHANGES"
+          if [ "$NON_WORKFLOW_CHANGES" -gt 0 ]; then
+            echo "should_sync=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_sync=false" >> $GITHUB_OUTPUT
+          fi
+
+  check-merge-state:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_REPO: ${{ github.repository }}
+    outputs:
+      checks_passed: ${{ steps.verify.outputs.checks_passed }}
+    steps:
+      - name: Wait for Status Checks and Verify
+        id: verify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Shortened wait (fixture): original waits up to 60 min; the window
+          # only needs to outlast the attacker push, so 5 min suffices.
+          MAX_ATTEMPTS=10; ATTEMPT=0
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            STATUS_JSON=$(gh pr view $PR_NUMBER --json statusCheckRollup --repo $SOURCE_REPO)
+            CHECK_RUNS=$(echo "$STATUS_JSON" | jq '[.statusCheckRollup[] | select(.__typename == "CheckRun") | select(.name != "check-merge-state" and .name != "record-sync")]')
+            INCOMPLETE_COUNT=$(echo "$CHECK_RUNS" | jq '[.[] | select(.status != "COMPLETED")] | length')
+            if [ "$INCOMPLETE_COUNT" -eq 0 ]; then
+              FAILED_COUNT=$(echo "$CHECK_RUNS" | jq '[.[] | select(.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED")] | length')
+              if [ "$FAILED_COUNT" -eq 0 ]; then
+                echo "checks_passed=true" >> $GITHUB_OUTPUT; break
+              else
+                echo "checks_passed=false" >> $GITHUB_OUTPUT; exit 1
+              fi
+            fi
+            ATTEMPT=$((ATTEMPT + 1)); sleep 30
+          done
+          [ $ATTEMPT -eq $MAX_ATTEMPTS ] && { echo "checks_passed=false" >> $GITHUB_OUTPUT; exit 1; }
+
+  record-sync:
+    needs: [check-file-changes, check-merge-state]
+    if: needs.check-merge-state.outputs.checks_passed == 'true' && needs.check-file-changes.outputs.should_sync == 'true' && github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    env:
+      # The original dispatches with the MUTABLE branch ref. Fixture keeps
+      # exactly that: PR_HEAD_BRANCH, not the approved SHA.
+      PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_REPO: ${{ github.repository }}
+      APPROVED_SHA: ${{ needs.check-file-changes.outputs.approved_sha }}
+    steps:
+      - name: Checkout the PR head exactly as an internal sync would
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
+          fetch-depth: 0
+
+      - name: Record what the sync consumes
+        run: |
+          {
+            echo "## Sync observables"
+            echo "- dispatched ref (mutable): $PR_HEAD_BRANCH"
+            echo "- approved SHA (never used by original): $APPROVED_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+          CONSUMED_SHA=$(git rev-parse HEAD)
+          echo "- consumed SHA at sync time: $CONSUMED_SHA"
+          echo "- consumed == approved: $([ "$CONSUMED_SHA" = "$APPROVED_SHA" ] && echo YES || echo NO)"
+          echo "- files differing from approved SHA:"
+          git diff --name-only "$APPROVED_SHA" HEAD | sed 's/^/  - /' || true
+          git diff --name-only "$APPROVED_SHA" HEAD > consumed-files.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sync-observables-${{ github.run_id }}
+          path: consumed-files.txt
+          retention-days: 7
