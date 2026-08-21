@@ -1,0 +1,19 @@
+name: decoy-ci
+on:
+  pull_request:
+jobs:
+  slow-check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "decoy check running ($(date -u +%FT%TZ))"
+          sleep 60
+          echo "decoy check passed"
+      - name: Fork-controlled artifact (PoC-3)
+        run: |
+          mkdir -p out
+          echo "${{ github.event.pull_request.number }}" > out/pr_number.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-number
+          path: out/pr_number.txt
