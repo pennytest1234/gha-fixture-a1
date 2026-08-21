@@ -62,8 +62,16 @@ jobs:
           # only needs to outlast the attacker push, so 5 min suffices.
           MAX_ATTEMPTS=10; ATTEMPT=0
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            STATUS_JSON=$(gh pr view $PR_NUMBER --json statusCheckRollup --repo $SOURCE_REPO)
-            CHECK_RUNS=$(echo "$STATUS_JSON" | jq '[.statusCheckRollup[] | select(.__typename == "CheckRun") | select(.name != "check-merge-state" and .name != "record-sync")]')
+            if ! STATUS_JSON=$(gh pr view $PR_NUMBER --json statusCheckRollup --repo $SOURCE_REPO 2>&1); then
+              echo "poll $(date -u +%T): gh pr view failed, retrying: $(echo "$STATUS_JSON" | head -2)"
+              ATTEMPT=$((ATTEMPT + 1)); sleep 20; continue
+            fi
+            CHECK_RUNS=$(echo "$STATUS_JSON" | jq '[.statusCheckRollup[] | select(.__typename == "CheckRun") | select(.name != "check-merge-state" and .name != "record-sync")]' 2>/dev/null)
+            if [ -z "$CHECK_RUNS" ]; then
+              echo "poll $(date -u +%T): empty rollup parse, retrying"
+              ATTEMPT=$((ATTEMPT + 1)); sleep 20; continue
+            fi
+            echo "poll $(date -u +%T) attempt $ATTEMPT: $(echo "$CHECK_RUNS" | jq -r '.[] | .name+":"+.status+":"+(.conclusion//"-")' | paste -sd, -)"
             # conclusion can lag status:COMPLETED briefly in the API; treat null as incomplete
             INCOMPLETE_COUNT=$(echo "$CHECK_RUNS" | jq '[.[] | select((.status != "COMPLETED") or (.conclusion == null))] | length')
             if [ "$INCOMPLETE_COUNT" -eq 0 ]; then
@@ -74,7 +82,7 @@ jobs:
                 echo "checks_passed=false" >> $GITHUB_OUTPUT; exit 1
               fi
             fi
-            ATTEMPT=$((ATTEMPT + 1)); sleep 30
+            ATTEMPT=$((ATTEMPT + 1)); sleep 20
           done
           [ $ATTEMPT -eq $MAX_ATTEMPTS ] && { echo "checks_passed=false" >> $GITHUB_OUTPUT; exit 1; }
 
