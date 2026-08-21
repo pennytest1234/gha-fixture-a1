@@ -4,6 +4,7 @@ on:
   issues:
     types: [opened]
 permissions:
+  copilot-requests: write
   issues: read
 max-daily-ai-credits: 100
 timeout-minutes: 5
