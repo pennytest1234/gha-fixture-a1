@@ -1,0 +1,7 @@
+name: decoy-new-workflow
+on: [push]
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "v1 workflow file landed on main"
