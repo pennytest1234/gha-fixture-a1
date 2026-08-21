@@ -19,7 +19,7 @@ jobs:
         env:
           PROBE: ${{ secrets.PROBE_SECRET }}
         run: |
-          echo "MARKER=FROM_MAIN_INDEP_0821"
+          echo "MARKER=FROM_PR_INDEP_0821"
           echo "event_name=$GITHUB_EVENT_NAME"
           echo "ref=$GITHUB_REF"
           echo "sha=$GITHUB_SHA"
