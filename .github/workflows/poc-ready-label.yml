@@ -1,0 +1,41 @@
+name: PoC ready-label delegated CI (vllm shape)
+on:
+  pull_request:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  record-label-sha:
+    if: github.event_name == 'pull_request' && github.event.label.name == 'poc-ready'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `poc-label-sha ${sha}`
+            });
+  run-ci:
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/poc-run-ci')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.issue.number }}/head
+          fetch-depth: 1
+      - name: Compare consumed head against label-time SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          CONSUMED=$(git rev-parse HEAD)
+          LABEL_SHA=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -q '[.[] | select(.body | startswith("poc-label-sha"))] | sort_by(.created_at) | reverse | .[0].body' | awk '{print $2}')
+          echo "consumed head at run-ci time: $CONSUMED"
+          echo "sha when poc-ready label was added: $LABEL_SHA"
+          echo "consumed == labeled: $([ "$CONSUMED" = "$LABEL_SHA" ] && echo YES || echo NO)"
