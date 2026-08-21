@@ -1,0 +1,21 @@
+name: Record CI approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+jobs:
+  approved:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "GROK_RECORD_MARKER=TRUSTED_MAIN_20260821"
+          echo "review_state=${{ github.event.review.state }}"
+          echo "actor=${{ github.actor }}"
+          echo "workflow_ref=${{ github.workflow_ref }}"
+          echo "workflow_sha=${{ github.workflow_sha }}"
+          echo "is_fork=${{ github.event.pull_request.head.repo.fork }}"
+          echo "pr_user=${{ github.event.pull_request.user.login }}"

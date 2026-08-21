@@ -1,0 +1,36 @@
+name: Notify CI authorization
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [Record CI approval]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  notify:
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ready') ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request_review' &&
+      github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "GROK_NOTIFY_MARKER=TRUSTED_MAIN_20260821"
+          echo "event_name=${{ github.event_name }}"
+          echo "wr_conclusion=${{ github.event.workflow_run.conclusion }}"
+          echo "wr_event=${{ github.event.workflow_run.event }}"
+          echo "wr_head_sha=${{ github.event.workflow_run.head_sha }}"
+          echo "wr_head_branch=${{ github.event.workflow_run.head_branch }}"
+          echo "wr_run_id=${{ github.event.workflow_run.id }}"
+          echo "secret_present=${{ secrets.PROBE_SECRET != '' }}"
+          echo "workflow_ref=${{ github.workflow_ref }}"
+          echo "actor=${{ github.actor }}"
