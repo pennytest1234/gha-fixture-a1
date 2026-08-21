@@ -58,9 +58,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Shortened wait (fixture): original waits up to 60 min; the window
-          # only needs to outlast the attacker push, so 5 min suffices.
-          MAX_ATTEMPTS=10; ATTEMPT=0
+          # Shortened wait (fixture): original waits up to 60 min. A post-approval
+          # push restarts CI (synchronize), so the window must outlast TWO decoy
+          # runs: 20 x 20s = ~6.5 min.
+          MAX_ATTEMPTS=20; ATTEMPT=0
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             if ! STATUS_JSON=$(gh pr view $PR_NUMBER --json statusCheckRollup --repo $SOURCE_REPO 2>&1); then
               echo "poll $(date -u +%T): gh pr view failed, retrying: $(echo "$STATUS_JSON" | head -2)"
