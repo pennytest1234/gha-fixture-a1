@@ -1,0 +1,37 @@
+name: fork-boundary-probe
+on:
+  pull_request:
+  pull_request_target:
+  pull_request_review:
+  pull_request_review_comment:
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      DECOY_APP_KEY: ${{ secrets.DECOY_APP_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Boundary observables
+        run: |
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "secret_present=$([ -n "$DECOY_APP_KEY" ] && echo YES || echo NO)"
+            echo "workflow_file_marker=$(cat .github/probe-marker 2>/dev/null || echo none)"
+            echo "head_ref=${GITHUB_HEAD_REF:-none}"
+            echo "ref=${GITHUB_REF:-none}"
+            echo "actor=${GITHUB_ACTOR:-none}"
+            if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+              t=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=probe" | head -c 40)
+              echo "oidc=${t:0:40}"
+            else
+              echo "oidc=URL_ABSENT"
+            fi
+            gh api user -q '"token_can_call_api_as=" + .login' 2>/dev/null || echo "token_api=FAILED"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
