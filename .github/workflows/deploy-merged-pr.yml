@@ -84,7 +84,10 @@ jobs:
             fi
             ATTEMPT=$((ATTEMPT + 1)); sleep 20
           done
-          [ $ATTEMPT -eq $MAX_ATTEMPTS ] && { echo "checks_passed=false" >> $GITHUB_OUTPUT; exit 1; }
+          if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+            echo "checks_passed=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
 
   record-sync:
     needs: [check-file-changes, check-merge-state]
