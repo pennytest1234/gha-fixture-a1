@@ -1,7 +1,6 @@
 name: Record CI approval
 
 on:
-  pull_request:
   pull_request_review:
     types: [submitted]
 
@@ -20,7 +19,3 @@ jobs:
           echo "workflow_sha=${{ github.workflow_sha }}"
           echo "is_fork=${{ github.event.pull_request.head.repo.fork }}"
           echo "pr_user=${{ github.event.pull_request.user.login }}"
-  self_hosted_probe:
-    runs-on: [self-hosted, grok-vllm-probe-no-such-runner]
-    steps:
-      - run: echo "GROK_SELFHOSTED_MARKER=ATTACKER_WOULD_RUN_HERE"
