@@ -1,0 +1,24 @@
+name: probe-control
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove secret is configured on privileged events
+        env:
+          PROBE: ${{ secrets.PROBE_SECRET }}
+        run: |
+          echo "MARKER=CONTROL_INDEP_0821"
+          if [ -n "$PROBE" ]; then
+            echo "secret_present=YES"
+            echo "secret_len=${#PROBE}"
+          else
+            echo "secret_present=NO"
+            echo "secret_len=0"
+          fi

@@ -1,0 +1,25 @@
+name: probe-needs-if
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  first:
+    runs-on: ubuntu-latest
+    outputs:
+      checks_passed: ${{ steps.s.outputs.checks_passed }}
+    steps:
+      - id: s
+        run: |
+          echo "checks_passed=true" >> "$GITHUB_OUTPUT"
+          echo "set output then failing"
+          exit 1
+  second:
+    needs: [first]
+    if: needs.first.outputs.checks_passed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "SECOND_RAN=YES despite first failure"

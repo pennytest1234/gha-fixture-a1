@@ -1,0 +1,90 @@
+name: probe-review
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+# Deliberately request write so we can see whether GitHub honours it
+# on fork-PR pull_request_review (or forces read-only).
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report context and secret presence
+        env:
+          PROBE: ${{ secrets.PROBE_SECRET }}
+        run: |
+          echo "MARKER=FROM_MAIN_INDEP_0821"
+          echo "event_name=$GITHUB_EVENT_NAME"
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "workflow_ref=${{ github.workflow_ref }}"
+          echo "workflow_sha=${{ github.workflow_sha }}"
+          echo "head_sha=${{ github.event.pull_request.head.sha }}"
+          echo "head_ref=${{ github.event.pull_request.head.ref }}"
+          echo "head_repo=${{ github.event.pull_request.head.repo.full_name }}"
+          echo "base_repo=${{ github.repository }}"
+          echo "is_fork=${{ github.event.pull_request.head.repo.fork }}"
+          echo "actor=${{ github.actor }}"
+          echo "review_state=${{ github.event.review.state }}"
+          echo "review_user=${{ github.event.review.user.login }}"
+          echo "pr_user=${{ github.event.pull_request.user.login }}"
+          if [ -n "$PROBE" ]; then
+            echo "secret_present=YES"
+            echo "secret_len=${#PROBE}"
+          else
+            echo "secret_present=NO"
+            echo "secret_len=0"
+          fi
+
+      - name: Token write probe (label)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" \
+            -f 'labels[]=probe-write'
+          echo "label_write_rc=$?"
+
+      - name: Token contents write probe (create ref)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/main" --jq .object.sha)
+          echo "read_main_rc=$? sha_len=${#SHA}"
+          gh api --method POST "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/heads/probe-token-write" -f sha="$SHA"
+          echo "create_ref_rc=$?"
+
+  empty-check-logic:
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_REPO: ${{ github.repository }}
+    steps:
+      - name: Replay target check-pass snippet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          STATUS_JSON=$(gh pr view "$PR_NUMBER" --json statusCheckRollup --repo "$SOURCE_REPO")
+          echo "raw_rollup=$(echo "$STATUS_JSON" | jq -c '.statusCheckRollup')"
+          CHECK_RUNS=$(echo "$STATUS_JSON" | jq '[.statusCheckRollup[] | select(.__typename == "CheckRun") | select(.name != "check-merge-state" and .name != "dispatch-to-internal")]')
+          jq_rc=$?
+          echo "jq_rc=$jq_rc"
+          echo "check_run_names=$(echo "$CHECK_RUNS" | jq -c '[.[] | {name,status,conclusion}]')"
+          INCOMPLETE_COUNT=$(echo "$CHECK_RUNS" | jq '[.[] | select(.status != "COMPLETED")] | length')
+          FAILED_COUNT=$(echo "$CHECK_RUNS" | jq '[.[] | select(.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED")] | length')
+          echo "INCOMPLETE_COUNT=$INCOMPLETE_COUNT FAILED_COUNT=$FAILED_COUNT"
+          if [ "$jq_rc" -eq 0 ] && [ "$INCOMPLETE_COUNT" -eq 0 ] && [ "$FAILED_COUNT" -eq 0 ]; then
+            echo "checks_passed=true"
+          else
+            echo "checks_passed=false"
+          fi
