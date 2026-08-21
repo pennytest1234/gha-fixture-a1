@@ -1,0 +1,28 @@
+name: probe-toctou
+on:
+  pull_request_review:
+    types: [submitted]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  toctou:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_REPO: ${{ github.repository }}
+      EVENT_SHA: ${{ github.event.pull_request.head.sha }}
+      REVIEW_SHA: ${{ github.event.review.commit_id }}
+    steps:
+      - name: Re-read live head after delay
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "t0_event_sha=$EVENT_SHA"
+          echo "t0_review_sha=$REVIEW_SHA"
+          echo "sleeping 25s to allow a post-approval push"
+          sleep 25
+          LIVE=$(gh pr view "$PR_NUMBER" --json headRefOid --repo "$SOURCE_REPO" --jq .headRefOid)
+          echo "t25_live_sha=$LIVE"
+          if [ "$LIVE" != "$EVENT_SHA" ]; then echo "TOCTOU_CHANGED=YES"; else echo "TOCTOU_CHANGED=NO"; fi
