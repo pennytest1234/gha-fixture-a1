@@ -1,0 +1,13 @@
+name: existing-ci
+on:
+  push:
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Trusted main-branch workflow exports the secret; scripts decide whether to read it.
+      DECOY_APP_KEY: ${{ secrets.DECOY_APP_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/build.sh
