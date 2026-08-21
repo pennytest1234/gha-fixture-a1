@@ -1,0 +1,7 @@
+name: decoy swap marker
+on: [push]
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "swap-marker landed post-approval"
